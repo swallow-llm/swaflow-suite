@@ -1,0 +1,144 @@
+# SwaFlow 3B clean-prefix mid-training (the final 3B model): branches the 3B run (flow_3b.toml)
+# at its 3T full state (step 357,600) and trains on to 4T with the same data stream; only the sampling of alpha changes.
+# Branch: link <flow_3b dump>/checkpoint/step-357600 into <dump_folder>/checkpoint/ and copy
+# <flow_3b dump>/rngstate/step-357600 into <dump_folder>/rngstate/; training resumes from that step.
+# Launch: torchrun --nnodes 32 --nproc_per_node 8 -m torchtitan.models.swaflow.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/midtrain_3b_final
+# Use the source run's GPU count (256) so the data loader resumes in place; override paths as in flow_3b.toml.
+
+[job]
+dump_folder = "./outputs"
+description = "SwaFlow 3B clean-prefix mid-training, 3T -> 4T (final model; window 0.10, LR 3e-4, k ~ U(0, 1024) w.p. 0.5)"
+print_config = false
+custom_config_module = "torchtitan.models.swaflow.job_config"
+
+[profiling]
+enable_profiling = false
+save_traces_folder = "profile_trace"
+profile_freq = 100000
+enable_memory_snapshot = false
+save_memory_snapshot_folder = "memory_snapshot"
+
+[metrics]
+log_freq = 10                         # also the watchdog's check interval
+disable_color_printing = true
+enable_tensorboard = true
+save_tb_folder = "tb"
+enable_wandb = false
+
+[model]
+name = "swaflow"
+flavor = "3B"                         # d 3072, 28 layers, 24 heads (head_dim 128); QK-norm on by default
+hf_assets_path = "./assets/hf/SmolLM2-135M"
+
+[optimizer]
+name = "AdamW"
+lr = 3e-4
+# Betas and weight decay are the torchtitan defaults (not tuned).
+beta1 = 0.9
+beta2 = 0.95
+eps = 1e-8
+weight_decay = 0.1
+implementation = "fused"
+
+[lr_scheduler]
+# As in flow_3b.toml, but with no decay: the LR stays at 3e-4 for the whole branch.
+warmup_steps = 2000
+total_steps = 715255
+decay_ratio = 0.0
+decay_type = "linear"
+min_lr_factor = 0.1
+
+[training]
+local_batch_size = 16                 # 256 GPUs x 16 = 4096 sequences: no gradient accumulation
+global_batch_size = 4096              # 4096 x 2048 = 8,388,608 tokens/step at every size
+seq_len = 2048                        # must match the data build
+max_norm = 2.5
+steps = 476800                        # 4T tokens
+dataset = "indexed_midtrain"          # same data and order as "indexed", plus the clean prefix
+dataset_path = "./data/production_6t"
+
+[debug]
+seed = 20260810                       # same seed for every size and for the AR twins
+
+[parallelism]
+data_parallel_replicate_degree = 1
+data_parallel_shard_degree = -1
+fsdp_reshard_after_forward = "default"
+tensor_parallel_degree = 1
+enable_async_tensor_parallel = false
+pipeline_parallel_degree = 1
+context_parallel_degree = 1
+
+[activation_checkpoint]
+mode = "selective"                    # affects memory and speed only, not the loss
+selective_ac_option = "op"
+
+[compile]
+enable = false                        # must stay off while attn_stats_every > 0
+components = ["model", "loss"]
+
+[checkpoint]
+enable = true
+folder = "checkpoint"                 # full training states (the resume path)
+last_save_model_only = false
+export_dtype = "float32"
+async_mode = "disabled"
+interval = 0                          # unused: [swaflow.checkpoint_schedule] decides
+
+[validation]
+enable = true
+freq = 1000000                        # unused: validation runs at every checkpoint
+
+# --------------------------------------------------------------------------
+# SwaFlow extensions
+# --------------------------------------------------------------------------
+
+[swaflow.model]
+schedule_alpha_max = 0.10             # window edge for 3B, set by the pilot run (pilot_window.toml)
+antithetic_t_sampling = true          # stratified alpha within each batch
+
+[swaflow.midtrain]
+# With probability clean_prefix_prob, draw k ~ U{0, ..., k_max - 1} and keep positions < k clean
+# (alpha = 1, no loss); otherwise k = 0, i.e. ordinary uniform-alpha training.
+clean_prefix_prob = 0.5
+k_max = 1024
+seed = 20260903
+
+[swaflow.rng]
+rank_distinct_seed = true             # independent alpha/noise streams per data-parallel rank
+checkpoint_rng_state = true           # save RNG positions so resumes are exact
+
+[swaflow.checkpoint_schedule]
+# Weights-only snapshots at steps 1, 2, 4, ..., 512 (in snapshots/) and a full
+# training state every 20B tokens (in checkpoint/). Nothing is deleted.
+enable = true
+log_spaced_until = 512
+interval_tokens = 20_000_000_000
+full_state_every_tokens = 20_000_000_000
+snapshot_folder = "snapshots"
+
+[swaflow.eval]
+# Held-out loss at every checkpoint, on the validation split of the data build.
+enable = true
+build_dir = "./data/production_6t"
+local_batch_size = 16
+# 8 evenly spaced points in [0, alpha_max]. The grid differs across sizes, so compare
+# the aggregate validation loss within a size, or per-alpha CE across sizes.
+alpha_grid = [0.0125, 0.025, 0.0375, 0.05, 0.0625, 0.075, 0.0875, 0.10]
+max_blocks_per_source = 2048
+seed = 1234
+embed_geometry = 1024                 # probes for the embedding-geometry statistics
+
+[swaflow.diagnostics]
+attn_stats_every = 50                 # max attention logit, to monitor QK-norm
+attn_stats_query_stride = 16
+grad_norm_every_step = true
+
+[swaflow.watchdog]
+# Run-health monitoring. It can stop a diverging run but, with spike_skip = false,
+# never changes the updates.
+enable = true
+grace_steps = 3000
+stop_enable_after_steps = 6000
+spike_skip = false
+alpha_contrast_min = 0.0

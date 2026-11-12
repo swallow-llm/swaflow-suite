@@ -4,7 +4,7 @@ name = "torchtitan"
 description = "A PyTorch native platform for training generative AI models"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = {text = "Apache-2.0 AND BSD-3-Clause (see LICENSE, LICENSE-torchtitan and NOTICE)"}
 authors = [
     { name = "PyTorch Team", email = "packages@pytorch.org" },
 ]

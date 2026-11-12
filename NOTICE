@@ -1,0 +1,26 @@
+SwaFlow
+Copyright (c) 2026 Daisuke Oba
+
+Except where noted below, the code in this repository that is not part of
+torchtitan is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+-------------------------------------------------------------------------------
+torchtitan
+-------------------------------------------------------------------------------
+This repository is built on torchtitan v0.2.2
+(https://github.com/pytorch/torchtitan), Copyright (c) Meta Platforms, Inc.
+and affiliates, licensed under the BSD 3-Clause License. The full license text
+is in LICENSE-torchtitan. Files that carry the Meta copyright header are
+distributed under that license; the "LICENSE file in the root directory" those
+headers refer to is LICENSE-torchtitan.
+
+torchtitan/models/swaflow/model.py and torchtitan/models/swaflow/ar/model.py
+are adapted from torchtitan's Llama 3 model definition.
+
+-------------------------------------------------------------------------------
+S-FLM
+-------------------------------------------------------------------------------
+Parts of torchtitan/models/swaflow/sampling.py and scripts/eval/code_exec.py
+are adapted from S-FLM (https://github.com/jdeschena/s-flm), Copyright (c) the
+S-FLM authors, licensed under the Apache License, Version 2.0. The adapted
+code has been modified.

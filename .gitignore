@@ -44,4 +44,9 @@ Sessionx.vim
 .env
 
 # Vibe coding
-.claude
+
+# SwaFlow: the data pipeline lives under scripts/data (upstream ignores "data")
+!scripts/data/
+!scripts/data/**
+__pycache__/
+*.pyc

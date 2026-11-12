@@ -1,0 +1,270 @@
+# SwaFlow: Dolma 3 Mix validation slice (generated; do not edit by hand)
+#
+# Command: python -m scripts.data.make_dolma3_config \
+#            --target-tokens 1000000000 \
+#            --revision main --out <this file>
+#
+# Selection rule (see make_dolma3_config.py): the first file of each
+# of the 163 partitions; tokens split across sources by the dataset
+# card's token shares and equally across partitions within a source,
+# truncated at document boundaries (max_tokens_per_file). No random selection.
+#
+# Revision pinned to commit sha: 689a3ea2d8217e64d73a5058913fa43ad15e81aa
+# Total quota: 1.000B tokens (before held-out)
+
+[build]
+name = "dolma3_1b_val"
+description = "Dolma 3 Mix 1B-token slice"
+seq_len = 2048
+seed = 20260806
+holdout_fraction = 0.001
+# 0 = the longest run that keeps the mixture with every source within
+# one epoch; the total is already set by max_tokens_per_file.
+target_tokens = 0
+
+[tokenizer]
+name = "HuggingFaceTB/SmolLM2-135M"
+path = "./assets/hf/SmolLM2-135M"
+vocab_size = 49152
+eos_id = 0
+
+# --- common_crawl: mix 76.07% = 760.8M tokens, 124 partitions ---
+[[sources]]
+name = "common_crawl"
+weight = 76.07
+repo_id = "allenai/dolma3_mix-6T"
+revision = "689a3ea2d8217e64d73a5058913fa43ad15e81aa"
+max_tokens_per_file = 6135291
+text_column = "text"
+id_column = "id"
+notes = "ODC-By 1.0. 124 partitions x first file. sa_remove_ranges not applied."
+files = [
+    "data/common_crawl-adult_content-0017/shard_00000014.jsonl.zst",
+    "data/common_crawl-adult_content-0018/shard_00000001.jsonl.zst",
+    "data/common_crawl-adult_content-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-art_and_design-0016/shard_00000005.jsonl.zst",
+    "data/common_crawl-art_and_design-0017/shard_00000016.jsonl.zst",
+    "data/common_crawl-art_and_design-0018/shard_00000001.jsonl.zst",
+    "data/common_crawl-art_and_design-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-crime_and_law-0015/shard_00000184.jsonl.zst",
+    "data/common_crawl-crime_and_law-0016/shard_00000000.jsonl.zst",
+    "data/common_crawl-crime_and_law-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-crime_and_law-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-crime_and_law-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-education_and_jobs-0015/shard_00000242.jsonl.zst",
+    "data/common_crawl-education_and_jobs-0016/shard_00000020.jsonl.zst",
+    "data/common_crawl-education_and_jobs-0017/shard_00000002.jsonl.zst",
+    "data/common_crawl-education_and_jobs-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-education_and_jobs-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0012/shard_00000012.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0013/shard_00000179.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0014/shard_00000000.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0015/shard_00000010.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0016/shard_00000004.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0017/shard_00000001.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-electronics_and_hardware-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-entertainment-0014/shard_00000469.jsonl.zst",
+    "data/common_crawl-entertainment-0015/shard_00000112.jsonl.zst",
+    "data/common_crawl-entertainment-0016/shard_00000005.jsonl.zst",
+    "data/common_crawl-entertainment-0017/shard_00000002.jsonl.zst",
+    "data/common_crawl-entertainment-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-entertainment-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-fashion_and_beauty-0018/shard_00000017.jsonl.zst",
+    "data/common_crawl-fashion_and_beauty-0019/shard_00000019.jsonl.zst",
+    "data/common_crawl-finance_and_business-0015/shard_00000008.jsonl.zst",
+    "data/common_crawl-finance_and_business-0016/shard_00000000.jsonl.zst",
+    "data/common_crawl-finance_and_business-0017/shard_00000001.jsonl.zst",
+    "data/common_crawl-finance_and_business-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-finance_and_business-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-food_and_dining-0015/shard_00000032.jsonl.zst",
+    "data/common_crawl-food_and_dining-0016/shard_00000022.jsonl.zst",
+    "data/common_crawl-food_and_dining-0017/shard_00000035.jsonl.zst",
+    "data/common_crawl-food_and_dining-0018/shard_00000001.jsonl.zst",
+    "data/common_crawl-food_and_dining-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-games-0012/shard_00000129.jsonl.zst",
+    "data/common_crawl-games-0013/shard_00000026.jsonl.zst",
+    "data/common_crawl-games-0014/shard_00000016.jsonl.zst",
+    "data/common_crawl-games-0015/shard_00000004.jsonl.zst",
+    "data/common_crawl-games-0016/shard_00000000.jsonl.zst",
+    "data/common_crawl-games-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-games-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-games-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-health-0013/shard_00000019.jsonl.zst",
+    "data/common_crawl-health-0014/shard_00000108.jsonl.zst",
+    "data/common_crawl-health-0015/shard_00000011.jsonl.zst",
+    "data/common_crawl-health-0016/shard_00000007.jsonl.zst",
+    "data/common_crawl-health-0017/shard_00000005.jsonl.zst",
+    "data/common_crawl-health-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-health-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-history_and_geography-0015/shard_00000044.jsonl.zst",
+    "data/common_crawl-history_and_geography-0016/shard_00000028.jsonl.zst",
+    "data/common_crawl-history_and_geography-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-history_and_geography-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-history_and_geography-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-home_and_hobbies-0017/shard_00000093.jsonl.zst",
+    "data/common_crawl-home_and_hobbies-0018/shard_00000021.jsonl.zst",
+    "data/common_crawl-home_and_hobbies-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-industrial-0015/shard_00000086.jsonl.zst",
+    "data/common_crawl-industrial-0016/shard_00000004.jsonl.zst",
+    "data/common_crawl-industrial-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-industrial-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-industrial-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-literature-0014/shard_00000123.jsonl.zst",
+    "data/common_crawl-literature-0015/shard_00000101.jsonl.zst",
+    "data/common_crawl-literature-0016/shard_00000034.jsonl.zst",
+    "data/common_crawl-literature-0017/shard_00000002.jsonl.zst",
+    "data/common_crawl-literature-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-literature-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-politics-0016/shard_00000052.jsonl.zst",
+    "data/common_crawl-politics-0017/shard_00000012.jsonl.zst",
+    "data/common_crawl-politics-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-politics-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-religion-0016/shard_00000127.jsonl.zst",
+    "data/common_crawl-religion-0017/shard_00000004.jsonl.zst",
+    "data/common_crawl-religion-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-religion-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0012/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0013/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0014/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0015/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0016/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-science_math_and_technology-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-social_life-0017/shard_00000250.jsonl.zst",
+    "data/common_crawl-social_life-0018/shard_00000001.jsonl.zst",
+    "data/common_crawl-social_life-0019/shard_00000002.jsonl.zst",
+    "data/common_crawl-software-0011/shard_00000192.jsonl.zst",
+    "data/common_crawl-software-0012/shard_00000022.jsonl.zst",
+    "data/common_crawl-software-0013/shard_00000001.jsonl.zst",
+    "data/common_crawl-software-0014/shard_00000002.jsonl.zst",
+    "data/common_crawl-software-0015/shard_00000003.jsonl.zst",
+    "data/common_crawl-software-0016/shard_00000000.jsonl.zst",
+    "data/common_crawl-software-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-software-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-software-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0012/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0013/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0014/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0015/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0016/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0017/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0018/shard_00000000.jsonl.zst",
+    "data/common_crawl-software_development-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-sports_and_fitness-0016/shard_00000435.jsonl.zst",
+    "data/common_crawl-sports_and_fitness-0017/shard_00000014.jsonl.zst",
+    "data/common_crawl-sports_and_fitness-0018/shard_00000003.jsonl.zst",
+    "data/common_crawl-sports_and_fitness-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-transportation-0016/shard_00000001.jsonl.zst",
+    "data/common_crawl-transportation-0017/shard_00000012.jsonl.zst",
+    "data/common_crawl-transportation-0018/shard_00000002.jsonl.zst",
+    "data/common_crawl-transportation-0019/shard_00000000.jsonl.zst",
+    "data/common_crawl-travel_and_tourism-0017/shard_00000015.jsonl.zst",
+    "data/common_crawl-travel_and_tourism-0018/shard_00000013.jsonl.zst",
+    "data/common_crawl-travel_and_tourism-0019/shard_00000001.jsonl.zst",
+]
+
+# --- olmocr_science_pdfs: mix 13.57% = 135.7M tokens, 21 partitions ---
+[[sources]]
+name = "olmocr_science_pdfs"
+weight = 13.57
+repo_id = "allenai/dolma3_mix-6T"
+revision = "689a3ea2d8217e64d73a5058913fa43ad15e81aa"
+max_tokens_per_file = 6462551
+text_column = "text"
+id_column = "id"
+notes = "ODC-By 1.0. 21 partitions x first file. sa_remove_ranges not applied."
+files = [
+    "data/olmocr_science_pdfs-adult_content/shard_00000411.jsonl.zst",
+    "data/olmocr_science_pdfs-art_and_design/shard_00000162.jsonl.zst",
+    "data/olmocr_science_pdfs-crime_and_law/shard_00000085.jsonl.zst",
+    "data/olmocr_science_pdfs-education_and_jobs/shard_00000055.jsonl.zst",
+    "data/olmocr_science_pdfs-electronics_and_hardware/shard_00000044.jsonl.zst",
+    "data/olmocr_science_pdfs-entertainment/shard_00000050.jsonl.zst",
+    "data/olmocr_science_pdfs-finance_and_business/shard_00000209.jsonl.zst",
+    "data/olmocr_science_pdfs-food_and_dining/shard_00000040.jsonl.zst",
+    "data/olmocr_science_pdfs-games/shard_00000376.jsonl.zst",
+    "data/olmocr_science_pdfs-health/shard_00000010.jsonl.zst",
+    "data/olmocr_science_pdfs-literature/shard_00000012.jsonl.zst",
+    "data/olmocr_science_pdfs-politics/shard_00000058.jsonl.zst",
+    "data/olmocr_science_pdfs-religion/shard_00000736.jsonl.zst",
+    "data/olmocr_science_pdfs-science_math_and_technology-part1/shard_00000094.jsonl.zst",
+    "data/olmocr_science_pdfs-science_math_and_technology-part2/shard_00033605.jsonl.zst",
+    "data/olmocr_science_pdfs-social_life/shard_00000420.jsonl.zst",
+    "data/olmocr_science_pdfs-software/shard_00000117.jsonl.zst",
+    "data/olmocr_science_pdfs-software_development/shard_00000000.jsonl.zst",
+    "data/olmocr_science_pdfs-sports_and_fitness/shard_00000026.jsonl.zst",
+    "data/olmocr_science_pdfs-transportation/shard_00000002.jsonl.zst",
+    "data/olmocr_science_pdfs-travel_and_tourism/shard_00000874.jsonl.zst",
+]
+
+# --- stack_edu: mix 6.89% = 68.9M tokens, 15 partitions ---
+[[sources]]
+name = "stack_edu"
+weight = 6.89
+repo_id = "allenai/dolma3_mix-6T"
+revision = "689a3ea2d8217e64d73a5058913fa43ad15e81aa"
+max_tokens_per_file = 4593793
+text_column = "text"
+id_column = "id"
+notes = "ODC-By 1.0. 15 partitions x first file. sa_remove_ranges not applied."
+files = [
+    "data/stack_edu-C/shard_00000000.jsonl.zst",
+    "data/stack_edu-CSharp/shard_00000000.jsonl.zst",
+    "data/stack_edu-Cpp/shard_00000000.jsonl.zst",
+    "data/stack_edu-Go/shard_00000000.jsonl.zst",
+    "data/stack_edu-Java/shard_00000000.jsonl.zst",
+    "data/stack_edu-JavaScript/shard_00000000.jsonl.zst",
+    "data/stack_edu-Markdown/shard_00000000.jsonl.zst",
+    "data/stack_edu-PHP/shard_00000000.jsonl.zst",
+    "data/stack_edu-Python/part-000000000.jsonl.zst",
+    "data/stack_edu-Ruby/shard_00000000.jsonl.zst",
+    "data/stack_edu-Rust/shard_00000000.jsonl.zst",
+    "data/stack_edu-SQL/shard_00000000.jsonl.zst",
+    "data/stack_edu-Shell/shard_00000000.jsonl.zst",
+    "data/stack_edu-Swift/shard_00000000.jsonl.zst",
+    "data/stack_edu-TypeScript/shard_00000000.jsonl.zst",
+]
+
+# --- finemath_3plus: mix 2.56% = 25.6M tokens, 1 partitions ---
+[[sources]]
+name = "finemath_3plus"
+weight = 2.56
+repo_id = "allenai/dolma3_mix-6T"
+revision = "689a3ea2d8217e64d73a5058913fa43ad15e81aa"
+max_tokens_per_file = 25602560
+text_column = "text"
+id_column = "id"
+notes = "ODC-By 1.0. 1 partitions x first file. sa_remove_ranges not applied."
+files = [
+    "data/finemath-3plus/train-00000-of-00128.jsonl.zst",
+]
+
+# --- rpj_proofpile_arxiv: mix 0.86% = 8.6M tokens, 1 partitions ---
+[[sources]]
+name = "rpj_proofpile_arxiv"
+weight = 0.86
+repo_id = "allenai/dolma3_mix-6T"
+revision = "689a3ea2d8217e64d73a5058913fa43ad15e81aa"
+max_tokens_per_file = 8600860
+text_column = "text"
+id_column = "id"
+notes = "ODC-By 1.0. 1 partitions x first file. sa_remove_ranges not applied."
+files = [
+    "data/rpj-proofpile-arxiv/arxiv-train-0000.jsonl.zst",
+]
+
+# --- dolma1_7_wiki_en: mix 0.04% = 0.4M tokens, 1 partitions ---
+[[sources]]
+name = "dolma1_7_wiki_en"
+weight = 0.04
+repo_id = "allenai/dolma3_mix-6T"
+revision = "689a3ea2d8217e64d73a5058913fa43ad15e81aa"
+max_tokens_per_file = 400040
+text_column = "text"
+id_column = "id"
+notes = "ODC-By 1.0. 1 partitions x first file. sa_remove_ranges not applied."
+files = [
+    "data/dolma1_7-wiki-en/00000.jsonl.zst",
+]

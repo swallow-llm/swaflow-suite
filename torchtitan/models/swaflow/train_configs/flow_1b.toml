@@ -1,0 +1,137 @@
+# SwaFlow 1B flow model (ladder): 0 -> 2T tokens of Dolma 3 Mix, alpha ~ U[0, 0.105] per sequence.
+# Launch: torchrun --nnodes <N> --nproc_per_node 8 -m torchtitan.models.swaflow.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/flow_1b
+# The paths below are site-specific: also pass --model.hf_assets_path <SmolLM2 tokenizer dir> and
+# --training.dataset_path / --swaflow.eval.build_dir <full Dolma 3 Mix build> (see scripts/data/README.md).
+# Trained on 32 nodes x 8 GPUs. Other GPU counts keep the same global batch; a resume must keep the GPU count.
+
+[job]
+dump_folder = "./outputs"
+description = "SwaFlow 1B ladder, 0-2T tokens of Dolma 3 Mix (window 0.105, LR 3e-4)"
+print_config = false
+custom_config_module = "torchtitan.models.swaflow.job_config"
+
+[profiling]
+enable_profiling = false
+save_traces_folder = "profile_trace"
+profile_freq = 100000
+enable_memory_snapshot = false
+save_memory_snapshot_folder = "memory_snapshot"
+
+[metrics]
+log_freq = 10                         # also the watchdog's check interval
+disable_color_printing = true
+enable_tensorboard = true
+save_tb_folder = "tb"
+enable_wandb = false
+
+[model]
+name = "swaflow"
+flavor = "1B"                         # d 2048, 24 layers, 16 heads (head_dim 128); QK-norm on by default
+hf_assets_path = "./assets/hf/SmolLM2-135M"
+
+[optimizer]
+name = "AdamW"
+lr = 3e-4
+# Betas and weight decay are the torchtitan defaults (not tuned).
+beta1 = 0.9
+beta2 = 0.95
+eps = 1e-8
+weight_decay = 0.1
+implementation = "fused"
+
+[lr_scheduler]
+# Shared by all sizes. total_steps spans the whole data plan, so a 2T run never
+# reaches the decay phase: the LR is constant after warmup.
+warmup_steps = 2000
+total_steps = 715255
+decay_ratio = 0.1
+decay_type = "linear"
+min_lr_factor = 0.1
+
+[training]
+local_batch_size = 16                 # 256 GPUs x 16 = 4096 sequences: no gradient accumulation
+global_batch_size = 4096              # 4096 x 2048 = 8,388,608 tokens/step at every size
+seq_len = 2048                        # must match the data build
+max_norm = 2.5
+steps = 238418                        # 2.0T tokens
+dataset = "indexed"
+dataset_path = "./data/production_6t"
+
+[debug]
+seed = 20260810                       # same seed for every size and for the AR twins
+
+[parallelism]
+data_parallel_replicate_degree = 1
+data_parallel_shard_degree = -1
+fsdp_reshard_after_forward = "default"
+tensor_parallel_degree = 1
+enable_async_tensor_parallel = false
+pipeline_parallel_degree = 1
+context_parallel_degree = 1
+
+[activation_checkpoint]
+mode = "selective"                    # affects memory and speed only, not the loss
+selective_ac_option = "op"
+
+[compile]
+enable = false                        # must stay off while attn_stats_every > 0
+components = ["model", "loss"]
+
+[checkpoint]
+enable = true
+folder = "checkpoint"                 # full training states (the resume path)
+last_save_model_only = false
+export_dtype = "float32"
+async_mode = "disabled"
+interval = 0                          # unused: [swaflow.checkpoint_schedule] decides
+
+[validation]
+enable = true
+freq = 1000000                        # unused: validation runs at every checkpoint
+
+# --------------------------------------------------------------------------
+# SwaFlow extensions
+# --------------------------------------------------------------------------
+
+[swaflow.model]
+schedule_alpha_max = 0.105            # window edge for 1B, set by the pilot run (pilot_window.toml)
+antithetic_t_sampling = true          # stratified alpha within each batch
+
+[swaflow.rng]
+rank_distinct_seed = true             # independent alpha/noise streams per data-parallel rank
+checkpoint_rng_state = true           # save RNG positions so resumes are exact
+
+[swaflow.checkpoint_schedule]
+# Weights-only snapshots at steps 1, 2, 4, ..., 512 (in snapshots/) and a full
+# training state every 20B tokens (in checkpoint/). Nothing is deleted.
+enable = true
+log_spaced_until = 512
+interval_tokens = 20_000_000_000
+full_state_every_tokens = 20_000_000_000
+snapshot_folder = "snapshots"
+
+[swaflow.eval]
+# Held-out loss at every checkpoint, on the validation split of the data build.
+enable = true
+build_dir = "./data/production_6t"
+local_batch_size = 16
+# 8 evenly spaced points in [0, alpha_max]. The grid differs across sizes, so compare
+# the aggregate validation loss within a size, or per-alpha CE across sizes.
+alpha_grid = [0.013125, 0.02625, 0.039375, 0.0525, 0.065625, 0.07875, 0.091875, 0.105]
+max_blocks_per_source = 2048
+seed = 1234
+embed_geometry = 1024                 # probes for the embedding-geometry statistics
+
+[swaflow.diagnostics]
+attn_stats_every = 50                 # max attention logit, to monitor QK-norm
+attn_stats_query_stride = 16
+grad_norm_every_step = true
+
+[swaflow.watchdog]
+# Run-health monitoring. It can stop a diverging run but, with spike_skip = false,
+# never changes the updates.
+enable = true
+grace_steps = 3000
+stop_enable_after_steps = 6000
+spike_skip = false
+alpha_contrast_min = 0.0

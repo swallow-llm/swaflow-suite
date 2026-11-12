@@ -1,0 +1,283 @@
+# Copyright (c) 2026 Daisuke Oba
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for the indexed dataloader.
+
+Two main properties:
+
+1. kill -> resume produces no duplicated and no missing samples
+2. the order log reconstructs the data of any step
+
+Both compare the token sequences actually produced against an independent
+recomputation from plan.json + run_order.json.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+import torch
+
+from scripts.data.indexed_dataset import Shard
+from scripts.data.order_log import describe_slots, write_run_order
+from scripts.data.plan import BuildPlan, slot_range_for_steps
+from scripts.data.tokenize_corpus import main as tokenize_main
+from torchtitan.components.loss import IGNORE_INDEX
+from torchtitan.models.swaflow.indexed_data import IndexedMixtureDataset
+
+SEQ_LEN = 32
+TEST_TOKENIZER = "tests/assets/tokenizer"
+
+
+@pytest.fixture(scope="module")
+def build_dir(tmp_path_factory) -> Path:
+    base = tmp_path_factory.mktemp("indexed")
+    rng = np.random.default_rng(0)
+    for src, n_docs in [("alpha", 400), ("beta", 250)]:
+        texts = [
+            " ".join(f"w{int(v)}" for v in rng.integers(0, 500, int(rng.integers(20, 80))))
+            for _ in range(n_docs)
+        ]
+        ids = [f"{src}-{i:05d}" for i in range(n_docs)]
+        path = base / "raw" / src / "part_0.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.table({"text": texts, "id": ids}), path)
+
+    cfg = base / "cfg.toml"
+    cfg.write_text(
+        f"""
+[build]
+name = "dl_build"
+seq_len = {SEQ_LEN}
+seed = 4242
+holdout_fraction = 0.01
+
+[tokenizer]
+path = "{TEST_TOKENIZER}"
+vocab_size = 2002
+eos_id = 0
+
+[[sources]]
+name = "alpha"
+weight = 2.0
+local_dir = "{base / "raw" / "alpha"}"
+files = "*.parquet"
+
+[[sources]]
+name = "beta"
+weight = 1.0
+local_dir = "{base / "raw" / "beta"}"
+files = "*.parquet"
+"""
+    )
+    root = base / "out"
+    tokenize_main(["--config", str(cfg), "--root", str(root), "--stage", "tokenize"])
+    return root / "dl_build"
+
+
+def _drain(ds: IndexedMixtureDataset, n: int) -> list[torch.Tensor]:
+    out = []
+    it = iter(ds)
+    for _ in range(n):
+        inp, label = next(it)
+        assert label[-1].item() == IGNORE_INDEX
+        assert torch.equal(label[:-1], inp["input"][1:])
+        out.append(inp["input"])
+    return out
+
+
+def _make(build_dir, rank, world, infinite=True) -> IndexedMixtureDataset:
+    return IndexedMixtureDataset(
+        build_dir=str(build_dir),
+        seq_len=SEQ_LEN,
+        dp_rank=rank,
+        dp_world_size=world,
+        infinite=infinite,
+    )
+
+
+# ======================================================================
+# Basics
+# ======================================================================
+def test_rejects_seq_len_mismatch(build_dir):
+    with pytest.raises(ValueError, match="seq_len"):
+        IndexedMixtureDataset(build_dir=str(build_dir), seq_len=SEQ_LEN * 2)
+
+
+def test_blocks_match_the_plan(build_dir):
+    ds = _make(build_dir, 0, 1)
+    plan = BuildPlan.load(build_dir)
+    got = _drain(ds, 20)
+    resolved = plan.resolve(np.arange(20))
+    for k, block in enumerate(got):
+        sp = plan.sources[int(resolved["source_index"][k])]
+        shard = Shard(build_dir / sp.shards[int(resolved["shard_index"][k])].prefix)
+        expected = shard.read_block(int(resolved["block_in_shard"][k]), SEQ_LEN)
+        assert np.array_equal(block.numpy(), expected.astype(np.int64))
+
+
+# ======================================================================
+# Resume
+# ======================================================================
+@pytest.mark.parametrize("world", [1, 2, 4])
+def test_resume_has_no_duplication_and_no_omission(build_dir, world):
+    """Killing and resuming from the state leaves the produced sequence unchanged."""
+    n_before, n_after = 37, 60
+    for rank in range(world):
+        full = _drain(_make(build_dir, rank, world), n_before + n_after)
+
+        ds = _make(build_dir, rank, world)
+        head = _drain(ds, n_before)
+        state = ds.state_dict()
+        assert state["sample_index"] == n_before
+
+        resumed = _make(build_dir, rank, world)
+        resumed.load_state_dict(state)
+        tail = _drain(resumed, n_after)
+
+        joined = head + tail
+        assert len(joined) == len(full)
+        for a, b in zip(joined, full):
+            assert torch.equal(a, b)
+
+
+@pytest.mark.parametrize("world", [1, 2, 3, 4])
+def test_ranks_partition_the_slot_space(build_dir, world):
+    """The union over ranks covers every slot exactly once (no gaps, no duplicates)."""
+    plan = BuildPlan.load(build_dir)
+    n_samples = plan.total_slots // world
+    seen: list[int] = []
+    for rank in range(world):
+        seen.extend((np.arange(n_samples) * world + rank).tolist())
+    seen.sort()
+    # only the remainder (< world slots) is dropped
+    assert seen == list(range(n_samples * world))
+    assert plan.total_slots - len(seen) < world
+
+
+def test_resume_across_the_resolve_chunk_boundary(build_dir):
+    """Positions stay correct across the internal resolve-chunk boundary (1024)."""
+    from torchtitan.models.swaflow.indexed_data import _RESOLVE_CHUNK
+
+    n = _RESOLVE_CHUNK + 5
+    ds = _make(build_dir, 0, 1)
+    head = _drain(ds, n)
+    state = ds.state_dict()
+    resumed = _make(build_dir, 0, 1)
+    resumed.load_state_dict(state)
+    tail = _drain(resumed, 10)
+    full = _drain(_make(build_dir, 0, 1), n + 10)
+    for a, b in zip(head + tail, full):
+        assert torch.equal(a, b)
+
+
+def test_state_dict_refuses_a_foreign_build(build_dir):
+    ds = _make(build_dir, 0, 1)
+    with pytest.raises(ValueError, match="build"):
+        ds.load_state_dict({"sample_index": 0, "build_name": "other"})
+    with pytest.raises(ValueError, match="does not match"):
+        ds.load_state_dict(
+            {"sample_index": 0, "build_name": "dl_build", "plan_checksum": "deadbeef"}
+        )
+
+
+def test_finite_mode_stops_at_the_end_of_the_plan(build_dir):
+    plan = BuildPlan.load(build_dir)
+    ds = _make(build_dir, 0, 1, infinite=False)
+    got = sum(1 for _ in ds)
+    assert got == plan.total_slots
+
+
+def test_resume_through_the_parallel_aware_dataloader(build_dir):
+    """torchtitan checkpoints the dataloader state, not the dataset state.
+
+    Checks that the position is restored exactly through the StatefulDataLoader
+    layer (`ParallelAwareDataloader.state_dict()` is pickled per rank).
+    """
+    from torchtitan.components.dataloader import ParallelAwareDataloader
+
+    world, local_bs = 2, 4
+
+    def make(rank):
+        return ParallelAwareDataloader(
+            dataset=_make(build_dir, rank, world),
+            dp_rank=rank,
+            dp_world_size=world,
+            batch_size=local_bs,
+        )
+
+    for rank in range(world):
+        dl = make(rank)
+        it = iter(dl)
+        for _ in range(5):
+            next(it)
+        state = dl.state_dict()
+
+        resumed = make(rank)
+        resumed.load_state_dict(state)
+        it_resumed = iter(resumed)
+        for _ in range(10):
+            exp_input, exp_label = next(it)
+            got_input, got_label = next(it_resumed)
+            assert torch.equal(got_input["input"], exp_input["input"])
+            assert torch.equal(got_label, exp_label)
+
+
+# ======================================================================
+# Order log
+# ======================================================================
+def test_order_log_restores_the_data_of_an_arbitrary_step(build_dir, tmp_path):
+    """Reproduces the data seen at checkpoint N from plan + run_order alone."""
+    world, local_bs = 2, 3
+    gb = world * local_bs
+    plan = BuildPlan.load(build_dir)
+    run_path = write_run_order(tmp_path, build_dir, plan, gb, world)
+    run = json.loads(Path(run_path).read_text())
+    assert run["plan_checksum"] == plan.checksum()
+
+    step = 11
+    # (a) blocks the dataloader actually produces at step 11
+    actual = []
+    for rank in range(world):
+        ds = _make(build_dir, rank, world)
+        blocks = _drain(ds, (step + 1) * local_bs)
+        actual.extend(b.numpy().tolist() for b in blocks[step * local_bs :])
+
+    # (b) blocks reconstructed from the order log
+    a, b = slot_range_for_steps(step, step + 1, run["global_batch_size"])
+    assert (a, b) == (step * gb, (step + 1) * gb)
+    info = describe_slots(plan, np.arange(a, b), with_documents=True)
+    restored = []
+    for entry in info["slots"]:
+        sp = next(s for s in plan.sources if s.name == entry["source"])
+        ref = next(s for s in sp.shards if s.name == entry["shard"])
+        shard = Shard(build_dir / ref.prefix)
+        restored.append(shard.read_block(entry["block_in_shard"], SEQ_LEN).tolist())
+
+    assert sorted(actual) == sorted(restored)
+    # the log contains no text; references are row numbers and file names only.
+    blob = json.dumps(info)
+    assert "text" not in blob
+    for entry in info["slots"]:
+        assert entry["documents"] and all(
+            set(d) == {"row", "doc_index", "n_tokens"} for d in entry["documents"]
+        )
+
+
+def test_order_log_documents_point_at_real_source_rows(build_dir):
+    plan = BuildPlan.load(build_dir)
+    info = describe_slots(plan, np.arange(8), with_documents=True)
+    for entry in info["slots"]:
+        sp = next(s for s in plan.sources if s.name == entry["source"])
+        ref = next(s for s in sp.shards if s.name == entry["shard"])
+        shard = Shard(build_dir / ref.prefix)
+        rows = [d["row"] for d in entry["documents"]]
+        assert rows == sorted(rows)
+        assert all(0 <= r < shard.meta["n_rows_read"] for r in rows)
+        # documents spanned by a block always total at least seq_len tokens
+        assert sum(d["n_tokens"] for d in entry["documents"]) >= SEQ_LEN

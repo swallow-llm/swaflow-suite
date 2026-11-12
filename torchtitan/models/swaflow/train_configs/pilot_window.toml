@@ -1,0 +1,109 @@
+# SwaFlow pilot run that sets each size's window edge alpha_max: untruncated alpha ~ U[0, 1], logging (alpha, per-sample CE).
+# alpha_max is placed where the pilot's loss falls below 0.1 nats (analysis: python -m scripts.analysis.alpha_window --dump <dump>).
+# One config for all sizes; per size pass --model.flavor, --optimizer.lr (3e-4 x sqrt(3072 / d): 6.0e-4 / 4.6e-4 / 3.7e-4 / 3.0e-4
+# for 150M / 500M / 1B / 3B) and --activation_checkpoint.mode (selective for 1B and 3B). Data: a ~1B-token Dolma 3 Mix sample.
+# Launch: torchrun --nnodes 2 --nproc_per_node 8 -m torchtitan.models.swaflow.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/pilot_<size>
+# Override the tokenizer and data paths as in flow_150m.toml.
+
+[job]
+dump_folder = "./outputs"
+description = "SwaFlow pilot run for the truncation window (untruncated alpha ~ U[0, 1])"
+print_config = false
+custom_config_module = "torchtitan.models.swaflow.job_config"
+
+[profiling]
+enable_profiling = false
+save_traces_folder = "profile_trace"
+profile_freq = 100
+enable_memory_snapshot = false
+save_memory_snapshot_folder = "memory_snapshot"
+
+[metrics]
+log_freq = 50
+disable_color_printing = true
+enable_tensorboard = true
+save_tb_folder = "tb"
+enable_wandb = false
+
+[model]
+name = "swaflow"
+flavor = "150M"
+hf_assets_path = "./assets/hf/SmolLM2-135M"
+
+[optimizer]
+name = "AdamW"
+lr = 6.0e-4
+eps = 1e-8
+
+[lr_scheduler]
+warmup_steps = 100
+decay_ratio = 0.0        # no decay, so profiles from different steps are comparable
+decay_type = "linear"
+min_lr_factor = 0.1
+
+[training]
+local_batch_size = 16
+global_batch_size = 256  # dp 16 x 16; keep dp = 16 for every size so the same held-out sources are evaluated
+seq_len = 2048
+max_norm = 2.5
+steps = 1700             # 891M tokens, under one epoch of the sample
+dataset = "indexed"
+dataset_path = "./data/dolma3_1b_val"
+
+[debug]
+seed = 20260808
+
+[parallelism]
+data_parallel_replicate_degree = 1
+data_parallel_shard_degree = -1
+fsdp_reshard_after_forward = "default"
+tensor_parallel_degree = 1
+enable_async_tensor_parallel = false
+pipeline_parallel_degree = 1
+context_parallel_degree = 1
+
+[checkpoint]
+# Nothing is saved; [swaflow.checkpoint_schedule] only sets the evaluation steps.
+enable = false
+
+[activation_checkpoint]
+mode = "none"
+selective_ac_option = "op"
+
+[compile]
+enable = false
+components = ["model", "loss"]
+
+[validation]
+enable = true
+freq = 100               # the actual evaluation steps come from [swaflow.checkpoint_schedule]
+
+[swaflow.model]
+# No schedule_alpha_max: alpha is sampled from the full range [0, 1].
+
+[swaflow.rng]
+rank_distinct_seed = true
+
+[swaflow.diagnostics]
+attn_stats_every = 200
+attn_stats_query_stride = 16
+grad_norm_every_step = true
+
+[swaflow.checkpoint_schedule]
+# Evaluation steps: 1, 2, 4, ..., 64, then every 100 steps.
+enable = true
+log_spaced_until = 64
+interval = 100
+
+[swaflow.eval]
+enable = true
+build_dir = "./data/dolma3_1b_val"
+local_batch_size = 16
+# Full-range grid, denser at low alpha where the window edges fall.
+alpha_grid = [
+    0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08,
+    0.10, 0.13, 0.16, 0.20, 0.30, 0.50, 0.75, 0.95,
+]
+max_blocks_per_source = 0   # the whole held-out split
+seed = 1234
+embed_geometry = 1024

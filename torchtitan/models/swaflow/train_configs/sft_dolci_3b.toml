@@ -1,0 +1,132 @@
+# SwaFlow SFT for the 3B flow model: one epoch of Dolci Instruct with the same recipe as sft_dolci_flow.toml
+# (prompts clean, only response tokens noised and scored), starting from the 3B run's 2T checkpoint (step 238,400).
+# Launch: torchrun --nnodes <N> --nproc_per_node 8 -m torchtitan.models.swaflow.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/sft_3b
+# Point --checkpoint.initial_load_path at <flow_3b dump>/checkpoint/step-238400 and override the tokenizer and data
+# paths as in sft_dolci_flow.toml. Set --training.steps, --lr_scheduler.total_steps and --lr_scheduler.warmup_steps to one epoch of your build.
+
+[job]
+dump_folder = "./outputs"
+description = "SwaFlow 3B SFT on Dolci Instruct (clean prompt, noised response)"
+print_config = false
+custom_config_module = "torchtitan.models.swaflow.job_config"
+
+[profiling]
+enable_profiling = false
+save_traces_folder = "profile_trace"
+profile_freq = 100000
+enable_memory_snapshot = false
+save_memory_snapshot_folder = "memory_snapshot"
+
+[metrics]
+log_freq = 10
+disable_color_printing = true
+enable_tensorboard = true
+save_tb_folder = "tb"
+enable_wandb = false
+
+[model]
+name = "swaflow"
+flavor = "3B"
+hf_assets_path = "./assets/hf/SmolLM2-135M"
+
+[optimizer]
+name = "AdamW"
+lr = 3e-5                          # 1/10 of the pretraining LR
+beta1 = 0.9
+beta2 = 0.95
+eps = 1e-8
+weight_decay = 0.1
+implementation = "fused"
+
+[lr_scheduler]
+# Short warmup (steps / 20), then linear decay to 0 over the last 90%.
+warmup_steps = 55
+total_steps = 1107
+decay_ratio = 0.9
+decay_type = "linear"
+min_lr_factor = 0.0
+
+[training]
+local_batch_size = 8
+global_batch_size = 512            # 512 x 2048 = 1,048,576 tokens/step
+seq_len = 2048                     # must match the SFT build
+max_norm = 2.5
+steps = 1107                       # one epoch: n_train_blocks // 512 of the SFT build
+dataset = "sft"
+dataset_path = "./data/dolci_sft_2048"
+
+[debug]
+seed = 20260902
+
+[parallelism]
+data_parallel_replicate_degree = 1
+data_parallel_shard_degree = -1
+fsdp_reshard_after_forward = "default"
+tensor_parallel_degree = 1
+enable_async_tensor_parallel = false
+pipeline_parallel_degree = 1
+context_parallel_degree = 1
+
+[activation_checkpoint]
+mode = "selective"
+selective_ac_option = "op"
+
+[compile]
+enable = false
+components = ["model", "loss"]
+
+[checkpoint]
+enable = true
+folder = "checkpoint"
+initial_load_path = "./outputs/flow_3b/checkpoint/step-238400"
+initial_load_model_only = true     # weights only; fresh optimizer state
+last_save_model_only = false
+export_dtype = "float32"
+async_mode = "disabled"
+interval = 0                       # unused: [swaflow.checkpoint_schedule] decides
+
+[validation]
+enable = true
+freq = 1000000                     # unused: validation runs at every checkpoint
+
+# --------------------------------------------------------------------------
+# SwaFlow extensions
+# --------------------------------------------------------------------------
+
+[swaflow.model]
+schedule_alpha_max = 0.10          # same window as the base
+antithetic_t_sampling = true
+
+[swaflow.rng]
+rank_distinct_seed = true
+checkpoint_rng_state = true
+
+[swaflow.checkpoint_schedule]
+# Weights-only snapshots every 400M tokens; the final step is a full state.
+enable = true
+log_spaced_until = 0
+interval_tokens = 400_000_000
+full_state_every_tokens = 0
+snapshot_folder = "snapshots"
+
+[swaflow.eval]
+# Held-out loss on the pretraining validation split, to check that SFT does not degrade it.
+enable = true
+build_dir = "./data/production_6t"
+local_batch_size = 8
+alpha_grid = [0.0125, 0.025, 0.0375, 0.05, 0.0625, 0.075, 0.0875, 0.10]
+max_blocks_per_source = 2048
+seed = 1234
+embed_geometry = 1024
+
+[swaflow.diagnostics]
+attn_stats_every = 0
+grad_norm_every_step = true
+
+[swaflow.watchdog]
+# Logging only: the stop rules are calibrated for pretraining.
+enable = true
+grace_steps = 50
+stop_enable_after_steps = 1000000
+spike_skip = false
+alpha_contrast_min = 0.0
