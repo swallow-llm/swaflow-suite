@@ -6,7 +6,7 @@
 
 SwaFlow is a suite of hyperspherical (Riemannian) flow language models trained from scratch under one recipe, so that how they scale can be studied. This repository contains the code used to train and evaluate them for the paper. It is built on [torchtitan](https://github.com/pytorch/torchtitan) v0.2.2.
 
-> **Paper:** *Inside the Scaling of Riemannian Flow Language Models: Geometry, Generation, and Conditioning* (link coming soon)
+> **Paper:** *SwaFlow: A Fully Open Suite for Studying Riemannian Flow Language Models Across Training and Scale* (link coming soon)
 
 ## Models
 
@@ -22,6 +22,18 @@ Released models are collected in [tokyotech-llm/swaflow-suite](https://huggingfa
 | 3B | 3.74B | 3072 | 28 | 24 | 8192 | 0.100 |
 
 Time convention: α = 1 is clean data and α = 0 is pure noise. During training, one α per sequence is drawn uniformly from the static window [0, α_max].
+
+### Using the released checkpoints
+
+Training states are stored one per folder (for example `uniform/step-238400/`), each a full torchtitan checkpoint with the optimizer state. The weights of any state can be loaded directly; only that folder is downloaded:
+
+```python
+from torchtitan.models.swaflow.hf import from_pretrained
+
+model = from_pretrained("tokyotech-llm/SwaFlow-150M", subfolder="uniform/step-238400", device="cuda")
+```
+
+To resume training, place the folder under `<dump folder>/checkpoint/` and launch the matching config (see [`docs/reproduce.md`](docs/reproduce.md)) with the same number of data-parallel ranks as the original run.
 
 ## Installation
 
@@ -86,7 +98,7 @@ The code in this repository that is not part of torchtitan is released under the
 
 ```bibtex
 @misc{swaflow2026,
-  title  = {Inside the Scaling of Riemannian Flow Language Models: Geometry, Generation, and Conditioning},
+  title  = {SwaFlow: A Fully Open Suite for Studying Riemannian Flow Language Models Across Training and Scale},
   author = {Oba, Daisuke and Mizuki, Sakae and Takamura, Hiroya and Okazaki, Naoaki},
   year   = {2026},
   note   = {coming soon}
