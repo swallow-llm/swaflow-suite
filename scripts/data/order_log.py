@@ -29,6 +29,11 @@ Usage::
     # expand the batch of step 42 down to documents
     python -m scripts.data.order_log --build <build_dir> \\
         --global-batch 64 --step 42 --documents
+
+With the published data order log, which holds the plan and the shard index but
+not the tokenized shards, `--index` points to its `index/` folder (with
+`shards.parquet`). `--index-files` lists the index files a range needs, so that
+only those are downloaded; see `scripts/data/README.md`.
 """
 
 from __future__ import annotations
@@ -48,6 +53,44 @@ from .indexed_dataset import Shard
 from .plan import BuildPlan, slot_range_for_steps
 
 RUN_ORDER_FILENAME = "run_order.json"
+
+
+class ShardIndex:
+    """The shard index as published: `shards.parquet` plus one `.idx` per shard.
+
+    `shards.parquet` has one row per shard with its `source` and `name` (the
+    pair identifies the shard), the `path` of its `.idx` relative to the index
+    folder, and the metadata the order log reads (`source_file`, ...). Only the
+    `.idx` files of the shards that are actually expanded need to be present.
+    """
+
+    def __init__(self, root: str | Path) -> None:
+        import pyarrow.parquet as pq
+
+        self.root = Path(root)
+        rows = pq.read_table(self.root / "shards.parquet").to_pylist()
+        self.rows = {(r["source"], r["name"]): r for r in rows}
+
+    def path(self, source: str, shard_name: str) -> Path:
+        return self.root / self.rows[(source, shard_name)]["path"]
+
+    def shard(self, build_dir: Path, source: str, ref) -> Shard:
+        return Shard(
+            build_dir / ref.prefix,
+            meta=self.rows[(source, ref.name)],
+            idx_path=self.path(source, ref.name),
+        )
+
+
+def index_files(plan: BuildPlan, slots: np.ndarray, index: ShardIndex, base: str | Path) -> list[str]:
+    """Paths (relative to `base`) of the `.idx` files needed to expand `slots`."""
+    r = plan.resolve(slots)
+    keys = {
+        (plan.sources[int(si)].name, plan.sources[int(si)].shards[int(sh)].name)
+        for si, sh in zip(r["source_index"], r["shard_index"])
+    }
+    base = Path(base).resolve()
+    return sorted(index.path(*k).resolve().relative_to(base).as_posix() for k in keys)
 
 
 def write_run_order(
@@ -80,8 +123,14 @@ def write_run_order(
     return path
 
 
-def describe_slots(plan: BuildPlan, slots: np.ndarray, with_documents: bool) -> dict:
-    """Slots -> summary of their origin (and optionally a per-document listing)."""
+def describe_slots(
+    plan: BuildPlan, slots: np.ndarray, with_documents: bool, index: ShardIndex | None = None
+) -> dict:
+    """Slots -> summary of their origin (and optionally a per-document listing).
+
+    With `index`, the document boundaries come from the published shard index
+    instead of the build's shard files.
+    """
     r = plan.resolve(slots)
     out: dict = {
         "n_slots": int(slots.size),
@@ -112,7 +161,10 @@ def describe_slots(plan: BuildPlan, slots: np.ndarray, with_documents: bool) -> 
             sp = plan.sources[si]
             key = (si, sh_i)
             if key not in shard_cache:
-                shard_cache[key] = Shard(plan.build_dir / sp.shards[sh_i].prefix)
+                ref = sp.shards[sh_i]
+                shard_cache[key] = (
+                    index.shard(plan.build_dir, sp.name, ref) if index else Shard(plan.build_dir / ref.prefix)
+                )
             shard = shard_cache[key]
             refs = shard.docs_in_block(int(r["block_in_shard"][k]), plan.seq_len)
             docs.append(
@@ -143,6 +195,12 @@ def main(argv=None) -> int:
     ap.add_argument("--step", type=int, default=None, help="expand the batch of this step")
     ap.add_argument("--checkpoint", type=int, default=None, help="summarise steps [0, N)")
     ap.add_argument("--documents", action="store_true", help="expand down to documents")
+    ap.add_argument("--index", default="", help="folder of the published shard index (with shards.parquet)")
+    ap.add_argument(
+        "--index-files",
+        action="store_true",
+        help="print the index files the range needs (relative to the parent of --build) and exit",
+    )
     ap.add_argument("--max-slots", type=int, default=4096, help="maximum number of slots to expand")
     ap.add_argument(
         "--max-summary-slots",
@@ -174,14 +232,20 @@ def main(argv=None) -> int:
         raise SystemExit("specify --step or --checkpoint")
 
     end = min(b, plan.total_slots)
-    limit = args.max_slots if args.documents else args.max_summary_slots
+    limit = args.max_slots if (args.documents or args.index_files) else args.max_summary_slots
     # Always record truncation so a partial view is not read as the full range.
     truncated = (end - a) > limit
     slots = np.arange(a, min(end, a + limit), dtype=np.int64)
     if slots.size == 0:
         raise SystemExit(f"slot range [{a}, {b}) is outside the plan")
 
-    summary = describe_slots(plan, slots, with_documents=args.documents)
+    index = ShardIndex(args.index) if args.index else None
+    if args.index_files:
+        if index is None:
+            raise SystemExit("--index-files needs --index")
+        print("\n".join(index_files(plan, slots, index, base=Path(args.build).resolve().parent)))
+        return 0
+    summary = describe_slots(plan, slots, with_documents=args.documents, index=index)
     summary["range"] = {
         "slot_start": int(a),
         "slot_end": int(b),

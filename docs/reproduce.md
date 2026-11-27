@@ -144,7 +144,7 @@ python scripts/posthoc_ema.py --checkpoint-root $SWAFLOW_OUTPUTS/midtrain_3b_fin
 
 ## 6. Evaluation
 
-All harnesses read full training states after the fact and write one JSON per step into the run's dump folder. Run them with [`scripts/launch/run_module.sh`](../scripts/launch/run_module.sh) on as many nodes as convenient. `--alpha-max` is the size's window edge.
+All harnesses read full training states after the fact and write one JSON per step into the run's dump folder. Run them with [`scripts/launch/run_module.sh`](../scripts/launch/run_module.sh) on as many nodes as convenient. `--alpha-max` is the size's window edge. From the data build they read only `plan.json` and `heldout/`, which the data order log on the Hub ([tokyotech-llm/swaflow-data-order](https://huggingface.co/datasets/tokyotech-llm/swaflow-data-order)) contains, so `--build` can point to its `production_6t/` folder.
 
 **α profiles.** The training grid (8 points over the window) is logged by the run itself. The common grid (8 points on [0, 0.10], for comparing cross entropy across sizes) and the 32-point window grid (for locating α_sol) are computed by `ckpt_eval`; α_geo is computed from the embedding table in the same pass.
 

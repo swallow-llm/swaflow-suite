@@ -118,6 +118,17 @@ python -m scripts.data.order_log --build <build dir> \
     --global-batch 64 --step 42 --documents
 ```
 
+### The published shard index
+
+The data order log on the Hub ([tokyotech-llm/swaflow-data-order](https://huggingface.co/datasets/tokyotech-llm/swaflow-data-order)) holds `plan.json` and the shard index of the training build, but not the tokenized shards. The index is laid out as
+
+```
+production_6t/index/shards.parquet
+production_6t/index/<source>/<Dolma directory>/<k>/<shard>.idx
+```
+
+with one `.idx` per shard (document start offsets and the row of each document in its input file) and one row per shard in `shards.parquet`: `source`, `name`, `path` (of the `.idx`, relative to `index/`), `origin`, `revision`, `source_file`, `source_sha256`, `source_size`, `n_docs`, `n_tokens`, `n_rows_read`, `n_rows_skipped_empty`, `idx_bytes`. `<k>` only keeps folders small. `--index` reads documents from this layout, and `--index-files` prints the files a range needs, relative to the folder that holds `production_6t/`, so that only those are downloaded (see the README at the top of the repository).
+
 `verify_order.py` runs three checks:
 
 - `roundtrip`: for one step, the tokens yielded by the dataloader equal the

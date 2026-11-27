@@ -299,12 +299,25 @@ class DocRef:
 class Shard:
     """Read a written shard (tokens via a pooled memmap; boundaries loaded lazily)."""
 
-    def __init__(self, prefix: str | Path) -> None:
+    def __init__(
+        self,
+        prefix: str | Path,
+        *,
+        meta: dict | None = None,
+        idx_path: str | Path | None = None,
+    ) -> None:
+        """`meta` and `idx_path` read a shard of the published index (the order
+        log's `--index`): the metadata comes from `shards.parquet` and the `.idx`
+        from its own path. The tokens (`.bin`) are not needed for that.
+        """
         self.prefix = Path(prefix)
-        self.meta = json.loads(shard_path(self.prefix, ".meta.json").read_text())
+        if meta is None:
+            meta = json.loads(shard_path(self.prefix, ".meta.json").read_text())
+        self.meta = meta
+        self._idx_path = Path(idx_path) if idx_path is not None else shard_path(self.prefix, ".idx")
         # Read only the 32-byte .idx header. doc_offset / doc_row are needed only
         # by the order log and are loaded on first access.
-        header = read_idx_header(shard_path(self.prefix, ".idx"))
+        header = read_idx_header(self._idx_path)
         self.dtype = _DTYPE_CODE[header["dtype_code"]]
         self.n_docs = header["n_docs"]
         self.n_tokens = header["n_tokens"]
@@ -318,9 +331,9 @@ class Shard:
     def _arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Document boundaries from `.idx` (order log only; loaded on first access)."""
         if self._idx is None:
-            offsets, rows, header = read_idx(shard_path(self.prefix, ".idx"))
+            offsets, rows, header = read_idx(self._idx_path)
             if header["n_tokens"] != self.n_tokens:
-                raise ValueError(f"{self.prefix}.idx: header and body disagree")
+                raise ValueError(f"{self._idx_path}: header and body disagree")
             self._idx = (offsets, rows)
         return self._idx
 

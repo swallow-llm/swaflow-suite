@@ -475,3 +475,59 @@ def test_the_order_log_records_the_global_batch_with_accumulation():
     cfg.training.global_batch_size = -1
     assert global_batch_size(cfg, 16) == 256
 
+
+def _publish_index(build_dir: Path, root: Path) -> Path:
+    """Lay the shard index out as on the Hub: shards.parquet plus sub-foldered .idx files."""
+    import shutil
+
+    plan = BuildPlan.load(build_dir)
+    index = root / "production_6t" / "index"
+    rows = []
+    for sp in plan.sources:
+        for i, ref in enumerate(sorted(sp.shards, key=lambda r: r.name)):
+            rel = f"{sp.name}/dir/{i // 2}/{ref.name}.idx"
+            (index / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(build_dir / f"{ref.prefix}.idx", index / rel)
+            meta = json.loads((build_dir / f"{ref.prefix}.meta.json").read_text())
+            rows.append({"name": ref.name, "path": rel, "source": meta["source"],
+                         "source_file": meta["source_file"], "n_docs": meta["n_docs"]})
+    pq.write_table(pa.Table.from_pylist(rows), index / "shards.parquet")
+    shutil.copyfile(build_dir / "plan.json", root / "production_6t" / "plan.json")
+    return index
+
+
+def test_order_log_reads_the_published_shard_index(build_dir, tmp_path):
+    """Documents expanded from the published index equal those from the build's shards."""
+    from scripts.data.order_log import ShardIndex, describe_slots
+
+    plan = BuildPlan.load(build_dir)
+    index = ShardIndex(_publish_index(build_dir, tmp_path))
+    slots = np.arange(0, plan.total_slots, max(1, plan.total_slots // 50))
+    got = describe_slots(plan, slots, True, index=index)
+    want = describe_slots(plan, slots, True)
+    for g, w in zip(got.pop("slots"), want.pop("slots")):
+        assert g == w, {k: (g.get(k), w.get(k)) for k in set(g) | set(w) if g.get(k) != w.get(k)}
+    assert got == want
+
+
+def test_order_log_lists_only_the_index_files_a_step_needs(build_dir, tmp_path, capsys):
+    from scripts.data.order_log import main as order_log_main
+
+    _publish_index(build_dir, tmp_path)
+    build = tmp_path / "production_6t"
+    args = ["--build", str(build), "--global-batch", "6", "--step", "3",
+            "--index", str(build / "index")]
+    assert order_log_main(args + ["--index-files"]) == 0
+    files = capsys.readouterr().out.split()
+    plan = BuildPlan.load(build_dir)
+    r = plan.resolve(np.arange(18, 24))
+    assert len(files) == len({(int(a), int(b)) for a, b in zip(r["source_index"], r["shard_index"])})
+    assert all(f.startswith("production_6t/index/") and (tmp_path / f).is_file() for f in files)
+
+    # with only those files present, the step still expands to documents
+    for p in (build / "index").rglob("*.idx"):
+        if p.relative_to(tmp_path).as_posix() not in files:
+            p.unlink()
+    assert order_log_main(args + ["--documents"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert len(out["slots"]) == 6 and all(s["documents"] for s in out["slots"])

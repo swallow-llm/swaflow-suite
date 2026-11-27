@@ -68,7 +68,19 @@ python -m pytest torchtitan/models/swaflow/tests
 
 ## Data order
 
-Every run reads the same build of Dolma 3 Mix with the same global batch, so step N reads the same data in every run, and the order follows from the data config shipped here. The data order log (the build plan and each run's record) will be released on the Hugging Face Hub; with it, [`scripts/data/order_log.py`](scripts/data/README.md) expands any step of any run into the documents it read, without rebuilding the data.
+Every run reads the same build of Dolma 3 Mix in the same order with a global batch of 4,096 sequences, so the step number alone fixes the data: step N reads the same sequences in every run. The order follows from the data config shipped here. The data order log is on the Hugging Face Hub as [tokyotech-llm/swaflow-data-order](https://huggingface.co/datasets/tokyotech-llm/swaflow-data-order): the build plan, the held-out blocks and the shard index. With it, any training sequence can be traced to the documents of Dolma 3 Mix it was built from, without rebuilding the data, and only the index files of the shards involved need to be downloaded:
+
+```bash
+REPO="tokyotech-llm/swaflow-data-order --repo-type dataset --local-dir order"
+# the plan and the shard table (about 30 MB)
+hf download $REPO production_6t/plan.json production_6t/index/shards.parquet
+# the index files that the first 8 sequences of step 123456 need, then their documents
+ARGS="--build order/production_6t --global-batch 4096 --index order/production_6t/index --step 123456 --max-slots 8"
+hf download $REPO $(python -m scripts.data.order_log $ARGS --index-files)
+python -m scripts.data.order_log $ARGS --documents
+```
+
+For each sequence the output names a file of Dolma 3 Mix (revision `689a3ea2d8217e64d73a5058913fa43ad15e81aa`) and the rows of its documents in that file. Tokenized with the [`tokenizers`](https://github.com/huggingface/tokenizers) library and the SmolLM2 tokenizer, each followed by `<|endoftext|>`, the documents reproduce the training sequence token for token. One sequence needs one index file (about 1 MB on average); a whole step of 4,096 sequences touches about 4,000 shards (about 4 GB of index), and the whole index is 61 GB. The evaluation harness needs only the plan and the held-out blocks, so released states can be scored with the log alone.
 
 ## Repository layout
 
