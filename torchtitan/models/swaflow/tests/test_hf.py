@@ -47,3 +47,36 @@ def test_config_records_the_window_and_no_rope_table(tmp_path):
     from safetensors.torch import load_file
 
     assert not any(k.endswith("freqs_cis") for k in load_file(str(tmp_path / WEIGHTS_NAME)))
+
+
+@pytest.mark.parametrize("kind", ["flow", "ar"])
+def test_weights_load_from_a_training_state_folder(tmp_path, kind):
+    """A DCP training state (model + optimizer tensors) in a subfolder loads its model weights."""
+    import torch.distributed.checkpoint as dcp
+
+    from torchtitan.models.swaflow.hf import write_config
+
+    torch.manual_seed(0)
+    model = build_eval_model(kind, "debugmodel", alpha_max=0.15)
+    with torch.no_grad():
+        model.init_weights()
+    state = dict(model.state_dict())
+    state.update({f"optimizer.state.{k}.exp_avg": torch.randn(v.shape) for k, v in list(state.items())[:3]})
+    dcp.save(state, checkpoint_id=str(tmp_path / "uniform" / "step-20"), no_dist=True)
+    write_config(model.model_args, tmp_path, kind=kind, flavor="debugmodel")
+
+    loaded = from_pretrained(tmp_path, subfolder="uniform/step-20")
+    for (k, a), (k2, b) in zip(model.state_dict().items(), loaded.state_dict().items()):
+        assert k == k2 and torch.equal(a, b), k
+
+
+def test_a_training_state_without_model_tensors_is_rejected(tmp_path):
+    import torch.distributed.checkpoint as dcp
+
+    from torchtitan.models.swaflow.hf import write_config
+
+    model = build_eval_model("flow", "debugmodel", alpha_max=0.15)
+    dcp.save({"optimizer.lr": torch.zeros(1)}, checkpoint_id=str(tmp_path / "step-1"), no_dist=True)
+    write_config(model.model_args, tmp_path, kind="flow", flavor="debugmodel")
+    with pytest.raises(RuntimeError, match="lacks model tensors"):
+        from_pretrained(tmp_path, subfolder="step-1")
