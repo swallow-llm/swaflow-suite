@@ -2,7 +2,7 @@
 # batch, LR schedule and backbone shape as flow_500m.toml (causal attention, no time conditioning).
 # Launch: torchrun --nnodes <N> --nproc_per_node 8 -m torchtitan.models.swaflow.ar.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/ar_500m
 # The ar.train entry point registers the "swaflow_ar" model. Override the tokenizer and data
-# paths as in flow_500m.toml. Any GPU count gives the same global batch; a resume must keep the GPU count.
+# paths as in flow_500m.toml. Any GPU count gives the same global batch, also when resuming.
 
 [job]
 dump_folder = "./outputs"
@@ -49,7 +49,7 @@ decay_type = "linear"
 min_lr_factor = 0.1
 
 [training]
-local_batch_size = 16                 # 256 GPUs x 16 = 4096 sequences: no gradient accumulation
+local_batch_size = 16                 # 4096 / (16 x GPUs) microbatches per step: 2 on the 128 GPUs this run used
 global_batch_size = 4096              # 8,388,608 tokens/step: step N reads the same samples as the flow run
 seq_len = 2048                        # must match the data build
 max_norm = 2.5

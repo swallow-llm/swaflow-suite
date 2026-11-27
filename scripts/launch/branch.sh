@@ -12,8 +12,10 @@
 # (only the last 20 full states of a run keep it). Without it, the branch
 # resumes model, optimizer, schedule and data position exactly but draws a
 # different, identically distributed alpha/noise stream.
-# Then start the branch with scripts/launch/train.sh <midtrain config> <branch_run>,
-# using the same data-parallel size as the source run.
+# Then start the branch with scripts/launch/train.sh <midtrain config> <branch_run>.
+# The branch may run on a different number of GPUs than the source run, but the
+# copied random-number state reproduces the source run's draws only on the same
+# number.
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."

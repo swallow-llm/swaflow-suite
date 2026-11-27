@@ -8,7 +8,7 @@ qsub -v CMD="scripts/launch/train.sh torchtitan/models/swaflow/train_configs/flo
 
 Paths come from [`scripts/launch/env.sh`](../scripts/launch/env.sh). Run names below are the dump folders under `$SWAFLOW_OUTPUTS`; the evaluation scripts expect them.
 
-All pretraining runs and branches used 32 nodes × 8 H200 (256 data-parallel ranks). The global batch (4096 × 2048 tokens) is fixed by the configs, so other node counts give the same optimisation, but the per-rank noise streams depend on the number of ranks, and a resumed run must keep the size it started with.
+All pretraining runs and branches used 32 nodes × 8 H200 (256 data-parallel ranks), except `ar_500m`, which used 16 nodes (128 ranks, two microbatches per step). The global batch (4096 × 2048 tokens) is fixed by the configs: with fewer ranks torchtitan accumulates gradients over several microbatches, so each optimizer step still averages over the same 4096 sequences. The per-rank α and noise streams depend on the number of ranks. A training state can be resumed on a different number of GPUs; see [Resuming a training state](#resuming-a-training-state).
 
 ## 1. Data
 
@@ -50,6 +50,30 @@ scripts/launch/train.sh torchtitan/models/swaflow/train_configs/ar_150m.toml ar_
 ```
 
 Each run writes a full training state (weights, optimizer, schedule, dataloader position) every 20B tokens, weights-only snapshots at steps 1, 2, 4, …, 512, and the held-out loss on its training α grid at every full state. The learning rate is constant after a 2,000-step warmup in every run.
+
+### Resuming a training state
+
+A full training state, for example one downloaded from the Hugging Face Hub, resumes when it is placed under the run's `checkpoint/` folder and the run's config is launched again:
+
+```bash
+hf download tokyotech-llm/SwaFlow-150M --include "uniform/step-238400/*" --local-dir hub
+mkdir -p $SWAFLOW_OUTPUTS/flow_150m/checkpoint
+mv hub/uniform/step-238400 $SWAFLOW_OUTPUTS/flow_150m/checkpoint/
+scripts/launch/train.sh torchtitan/models/swaflow/train_configs/flow_150m.toml flow_150m
+```
+
+Use the `midtrain_*.toml` config for a clean-prefix state. The data build must be the one the state was trained on (`production_6t`); its name and plan checksum are checked on load.
+
+The number of GPUs does not have to match the original run. The original number of data-parallel ranks is read from the state, and:
+
+- weights and AdamW moments are stored as whole tensors and are resharded on load; the learning-rate schedule follows the step counter;
+- the global batch stays at 4096 sequences, since torchtitan sets the gradient accumulation to 4096 / (16 × ranks). The number of GPUs must therefore divide 256; 16 GPUs, for example, accumulate 16 microbatches per step;
+- the data position is converted to the new number of ranks, so every step reads the same 4096 sequences of the data order as the same step of the original run; only their assignment to GPUs and microbatches changes. The conversion is logged with the prefix `[data-reshard]`.
+
+Two things do not carry over, so a resumed run continues the same optimization on the same data but does not retrace the original run exactly:
+
+- **Random numbers.** The states do not include the random-number state, and the streams are drawn per rank, so each sequence gets a different (identically distributed) α and noise than in the original run.
+- **Floating-point order.** Sums over ranks and microbatches are taken in a different order on a different number of GPUs, so the weights after resuming differ from the original run in the last bits even with identical random numbers, and the differences grow over training.
 
 ## 4. Clean-prefix mid-training
 
@@ -110,7 +134,7 @@ Bases are the mid-training states (150M and 500M at 2T; 1B at 0.5T, 1T and 2T; 3
 
 ### Post-hoc EMA
 
-The averaged 3B model is EMA-100, reconstructed from the full states saved every 20B tokens of `midtrain_3b_final` (followed back into `flow_3b` before the branch point):
+The averaged 3B model is EMA-100, reconstructed from the full states saved every 20B tokens of `midtrain_3b_final` (followed back into `flow_3b` before the branch point). The training states released on the Hub are a subset of this grid, so the average needs the states of a run trained here; the result itself is released as weights (`SwaFlow-3B-EMA`):
 
 ```bash
 python scripts/posthoc_ema.py --checkpoint-root $SWAFLOW_OUTPUTS/midtrain_3b_final \

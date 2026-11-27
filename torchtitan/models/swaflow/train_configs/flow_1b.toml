@@ -2,7 +2,7 @@
 # Launch: torchrun --nnodes <N> --nproc_per_node 8 -m torchtitan.models.swaflow.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/flow_1b
 # The paths below are site-specific: also pass --model.hf_assets_path <SmolLM2 tokenizer dir> and
 # --training.dataset_path / --swaflow.eval.build_dir <full Dolma 3 Mix build> (see scripts/data/README.md).
-# Trained on 32 nodes x 8 GPUs. Other GPU counts keep the same global batch; a resume must keep the GPU count.
+# Trained on 32 nodes x 8 GPUs. Other GPU counts keep the same global batch, also when resuming (docs/reproduce.md).
 
 [job]
 dump_folder = "./outputs"

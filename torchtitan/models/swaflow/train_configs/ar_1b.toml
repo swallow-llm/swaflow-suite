@@ -2,7 +2,7 @@
 # batch, LR schedule and backbone shape as flow_1b.toml (causal attention, no time conditioning).
 # Launch: torchrun --nnodes <N> --nproc_per_node 8 -m torchtitan.models.swaflow.ar.train --job.config_file <this file> --job.dump_folder $SWAFLOW_OUTPUTS/ar_1b
 # The ar.train entry point registers the "swaflow_ar" model. Override the tokenizer and data
-# paths as in flow_1b.toml. Any GPU count gives the same global batch; a resume must keep the GPU count.
+# paths as in flow_1b.toml. Any GPU count gives the same global batch, also when resuming.
 
 [job]
 dump_folder = "./outputs"

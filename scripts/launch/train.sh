@@ -10,8 +10,8 @@
 # resumes from the latest checkpoint in it. For a multi-node run, start this
 # script once per node with NNODES, NODE_RANK and MASTER_ADDR set (see
 # scripts/launch/pbs_example.sh and slurm_example.sh). The global batch is fixed
-# by the config, so any node count works for a fresh run, but a resumed run
-# must keep the data-parallel size it was started with.
+# by the config, so any node count works, also for a resumed run: the data
+# position is converted to the new number of GPUs (docs/reproduce.md).
 #
 # Data paths are filled in from $SWAFLOW_DATA_ROOT by config family; set
 # SWAFLOW_DATASET to point --training.dataset_path elsewhere.

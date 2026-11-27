@@ -14,7 +14,9 @@ torchtitan extension pattern (as in `experiments/ft/train.py`). The subclass:
 2. installs diagnostics (`install_diagnostics`: maximum attention logit and
    pre-clipping gradient norm);
 3. reseeds the default generators per DP rank (`rng.py`), since upstream
-   `set_determinism` seeds all ranks identically without PP.
+   `set_determinism` seeds all ranks identically without PP;
+4. lets a checkpoint saved with one number of data-parallel ranks be resumed
+   with another (`data_reshard.py`).
 
 With `swaflow.checkpoint_schedule.enable = false` (default) the upstream
 interval-based schedule is used.
@@ -25,6 +27,7 @@ import os
 import torchtitan.distributed.utils as dist_utils
 from torchtitan.config import JobConfig
 from torchtitan.models.swaflow.ckpt_schedule import attach_schedule, CheckpointSchedule
+from torchtitan.models.swaflow.data_reshard import attach_dataloader_resharding
 from torchtitan.models.swaflow.metrics import (
     configure_attention_stats,
     GradNormLogger,
@@ -199,6 +202,11 @@ class SwaFlowTrainer(Trainer):
 
         self._attach_checkpoint_schedule(job_config)
         self._attach_rng_checkpointing(job_config)
+        attach_dataloader_resharding(
+            self.checkpointer,
+            step_getter=lambda: self.step,
+            gradient_accumulation_steps=self.gradient_accumulation_steps,
+        )
 
         # Attach the watchdog after the checkpoint schedule: attach_schedule
         # replaces the manager's class, so wrapping save earlier would capture the

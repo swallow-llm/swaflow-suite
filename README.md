@@ -33,7 +33,7 @@ from torchtitan.models.swaflow.hf import from_pretrained
 model = from_pretrained("tokyotech-llm/SwaFlow-150M", subfolder="uniform/step-238400", device="cuda")
 ```
 
-To resume training, place the folder under `<dump folder>/checkpoint/` and launch the matching config (see [`docs/reproduce.md`](docs/reproduce.md)) with the same number of data-parallel ranks as the original run.
+To resume training, place the folder under `<dump folder>/checkpoint/` and launch the matching config. The number of GPUs may differ from the original run's: weights, optimizer state, learning-rate schedule and data position carry over, and gradient accumulation keeps the global batch at 4096 sequences, so every step reads the same sequences as in the original run. The random-number state is not included and floating-point sums are taken in a different order, so a resumed run does not retrace the original run exactly. See [Resuming a training state](docs/reproduce.md#resuming-a-training-state).
 
 ## Installation
 

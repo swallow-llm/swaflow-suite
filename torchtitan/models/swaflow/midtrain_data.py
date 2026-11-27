@@ -36,7 +36,7 @@ from torchtitan.components.dataloader import ParallelAwareDataloader
 from torchtitan.components.loss import IGNORE_INDEX
 from torchtitan.components.tokenizer import BaseTokenizer
 from torchtitan.config import JobConfig
-from torchtitan.models.swaflow.indexed_data import IndexedMixtureDataset
+from torchtitan.models.swaflow.indexed_data import global_batch_size, IndexedMixtureDataset
 from torchtitan.tools.logging import logger
 
 from scripts.data.order_log import write_run_order  # noqa: E402
@@ -215,7 +215,7 @@ def build_midtrain_dataloader(
             dump_folder=job_config.job.dump_folder,
             build_dir=build_dir,
             plan=ds.plan,
-            global_batch_size=local_bs * dp_world_size,
+            global_batch_size=global_batch_size(job_config, dp_world_size),
             dp_world_size=dp_world_size,
             extra={
                 "local_batch_size": local_bs,

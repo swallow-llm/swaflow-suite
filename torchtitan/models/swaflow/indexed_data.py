@@ -14,7 +14,8 @@ where `sample_index` is the rank-local sample counter. Over all ranks and
 samples this covers the slot space exactly once, so the only state is one
 integer (`sample_index`) and a resumed run has no duplicates or gaps. Unlike
 `pretokenized_data.py`, which relies on HF datasets' `skip()`, nothing depends
-on reproducing a shuffle or a shard split.
+on reproducing a shuffle or a shard split. The same property lets a checkpoint
+be resumed with a different number of ranks (`data_reshard.py`).
 
 Labels follow the convention of `pretokenized_data.py`
 (`label[j] = block[j+1]`, last position IGNORE_INDEX); see its docstring.
@@ -47,7 +48,7 @@ from scripts.data.indexed_dataset import Shard  # noqa: E402
 from scripts.data.order_log import write_run_order  # noqa: E402
 from scripts.data.plan import BuildPlan  # noqa: E402
 
-__all__ = ["IndexedMixtureDataset", "build_indexed_dataloader"]
+__all__ = ["IndexedMixtureDataset", "build_indexed_dataloader", "global_batch_size"]
 
 #: Slots resolved per call. Feistel and searchsorted are vectorised, so batching
 #: is faster. Does not affect the resume granularity.
@@ -176,6 +177,18 @@ class IndexedMixtureDataset(IterableDataset, Stateful):
         self._log_position("resumed from checkpoint")
 
 
+def global_batch_size(job_config: JobConfig, dp_world_size: int) -> int:
+    """Sequences per optimizer step, gradient accumulation included.
+
+    Same rule as `Trainer.__init__`: `training.global_batch_size`, or one
+    microbatch per rank if it is not set. The order log needs this value, not
+    `local_batch_size * dp_world_size`, which is smaller when gradients are
+    accumulated.
+    """
+    gb = job_config.training.global_batch_size
+    return gb if gb > 0 else job_config.training.local_batch_size * dp_world_size
+
+
 def build_indexed_dataloader(
     dp_world_size: int,
     dp_rank: int,
@@ -219,7 +232,7 @@ def build_indexed_dataloader(
             dump_folder=job_config.job.dump_folder,
             build_dir=build_dir,
             plan=ds.plan,
-            global_batch_size=local_bs * dp_world_size,
+            global_batch_size=global_batch_size(job_config, dp_world_size),
             dp_world_size=dp_world_size,
             extra={"local_batch_size": local_bs},
         )
